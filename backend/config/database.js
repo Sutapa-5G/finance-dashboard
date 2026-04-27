@@ -1,13 +1,22 @@
 const { Sequelize } = require('sequelize');
 const path = require('path');
 
-const sequelize = new Sequelize({
-  dialect: 'sqlite',
-  dialectModule: require('better-sqlite3'),
-  storage: process.env.NODE_ENV === 'production'
-    ? '/tmp/finance.db'
-    : path.join(__dirname, '..', 'finance.db'),
-  logging: false,
-});
+// Use PostgreSQL in production, SQLite locally
+const sequelize = process.env.DATABASE_URL
+  ? new Sequelize(process.env.DATABASE_URL, {
+      dialect: 'postgres',
+      dialectOptions: {
+        ssl: {
+          require: true,
+          rejectUnauthorized: false
+        }
+      },
+      logging: false
+    })
+  : new Sequelize({
+      dialect: 'sqlite',
+      storage: path.join(__dirname, '..', 'finance.db'),
+      logging: false
+    });
 
 module.exports = sequelize;
