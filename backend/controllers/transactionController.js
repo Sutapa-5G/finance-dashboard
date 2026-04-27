@@ -98,73 +98,56 @@ const deleteTransaction = async (req, res) => {
 const getSummary = async (req, res) => {
   try {
     const { month, year } = req.query;
-    const sequelize = require('../config/database');
 
-    // Monthly totals - income and expense
-    const monthlyTotals = await Transaction.findAll({
-      attributes: [
-        'type',
-        [sequelize.fn('SUM', sequelize.col('amount')), 'total']
-      ],
-      where: {
-        UserId: req.user.id,
-        [Op.and]: [
-          sequelize.where(
-            sequelize.fn('EXTRACT', sequelize.literal(`MONTH FROM "date"`)),
-            Number(month) + 1
-          ),
-          sequelize.where(
-            sequelize.fn('EXTRACT', sequelize.literal(`YEAR FROM "date"`)),
-            Number(year)
-          )
-        ]
-      },
-      group: ['type'],
+    // Get ALL transactions for this user
+    const allTransactions = await Transaction.findAll({
+      where: { UserId: req.user.id },
       raw: true
     });
+
+    // Filter by month and year in JavaScript
+    const filtered = allTransactions.filter(t => {
+      const d = new Date(t.date);
+      return d.getMonth() === Number(month) &&
+             d.getFullYear() === Number(year);
+    });
+
+    // Calculate monthly totals
+    const totals = { income: 0, expense: 0 };
+    filtered.forEach(t => {
+      totals[t.type] = (totals[t.type] || 0) + Number(t.amount);
+    });
+
+    const monthlyTotals = Object.entries(totals).map(([type, total]) => ({
+      type, total
+    }));
 
     // Expenses by category for pie chart
-    const byCategory = await Transaction.findAll({
-      attributes: [
-        'category',
-        [sequelize.fn('SUM', sequelize.col('amount')), 'total']
-      ],
-      where: {
-        UserId: req.user.id,
-        type: 'expense',
-        [Op.and]: [
-          sequelize.where(
-            sequelize.fn('EXTRACT', sequelize.literal(`MONTH FROM "date"`)),
-            Number(month) + 1
-          ),
-          sequelize.where(
-            sequelize.fn('EXTRACT', sequelize.literal(`YEAR FROM "date"`)),
-            Number(year)
-          )
-        ]
-      },
-      group: ['category'],
-      order: [[sequelize.fn('SUM', sequelize.col('amount')), 'DESC']],
-      raw: true
+    const categoryMap = {};
+    filtered
+      .filter(t => t.type === 'expense')
+      .forEach(t => {
+        categoryMap[t.category] = (categoryMap[t.category] || 0) + Number(t.amount);
+      });
+
+    const byCategory = Object.entries(categoryMap)
+      .map(([category, total]) => ({ category, total }))
+      .sort((a, b) => b.total - a.total);
+
+    // Monthly trend for charts
+    const trendMap = {};
+    allTransactions.forEach(t => {
+      const d = new Date(t.date);
+      const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const key = `${monthKey}_${t.type}`;
+      if (!trendMap[key]) {
+        trendMap[key] = { month: monthKey, type: t.type, total: 0 };
+      }
+      trendMap[key].total += Number(t.amount);
     });
 
-    // Monthly trend for bar and line charts
-    const trend = await Transaction.findAll({
-      attributes: [
-        [sequelize.fn('TO_CHAR', sequelize.col('date'), 'YYYY-MM'), 'month'],
-        'type',
-        [sequelize.fn('SUM', sequelize.col('amount')), 'total']
-      ],
-      where: { UserId: req.user.id },
-      group: [
-        sequelize.fn('TO_CHAR', sequelize.col('date'), 'YYYY-MM'),
-        'type'
-      ],
-      order: [
-        [sequelize.fn('TO_CHAR', sequelize.col('date'), 'YYYY-MM'), 'ASC']
-      ],
-      raw: true
-    });
+    const trend = Object.values(trendMap)
+      .sort((a, b) => a.month.localeCompare(b.month));
 
     res.json({ success: true, monthlyTotals, byCategory, trend });
 
@@ -172,4 +155,9 @@ const getSummary = async (req, res) => {
     console.error('Summary error:', error);
     res.status(500).json({ success: false, message: 'Could not fetch summary' });
   }
+};
+
+module.exports = {
+  getTransactions, createTransaction,
+  updateTransaction, deleteTransaction, getSummary
 };
