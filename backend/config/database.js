@@ -3,8 +3,11 @@ const path = require('path');
 
 const sequelize = new Sequelize({
   dialect: 'sqlite',
-  storage: path.join(__dirname, '..', 'finance.db'),
-  logging: process.env.NODE_ENV === 'development' ? console.log : false,
+  dialectModule: require('better-sqlite3'),
+  storage: process.env.NODE_ENV === 'production'
+    ? '/tmp/finance.db'
+    : path.join(__dirname, '..', 'finance.db'),
+  logging: false,
 });
 
 module.exports = sequelize;
