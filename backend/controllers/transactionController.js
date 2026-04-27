@@ -100,10 +100,7 @@ const getSummary = async (req, res) => {
     const { month, year } = req.query;
     const sequelize = require('../config/database');
 
-    const startDate = `${year}-${String(Number(month) + 1).padStart(2, '0')}-01`;
-    const lastDay = new Date(year, Number(month) + 1, 0).getDate();
-    const endDate = `${year}-${String(Number(month) + 1).padStart(2, '0')}-${lastDay}`;
-
+    // Monthly totals - income and expense
     const monthlyTotals = await Transaction.findAll({
       attributes: [
         'type',
@@ -111,12 +108,22 @@ const getSummary = async (req, res) => {
       ],
       where: {
         UserId: req.user.id,
-        date: { [Op.between]: [startDate, endDate] }
+        [Op.and]: [
+          sequelize.where(
+            sequelize.fn('EXTRACT', sequelize.literal(`MONTH FROM "date"`)),
+            Number(month) + 1
+          ),
+          sequelize.where(
+            sequelize.fn('EXTRACT', sequelize.literal(`YEAR FROM "date"`)),
+            Number(year)
+          )
+        ]
       },
       group: ['type'],
       raw: true
     });
 
+    // Expenses by category for pie chart
     const byCategory = await Transaction.findAll({
       attributes: [
         'category',
@@ -125,22 +132,37 @@ const getSummary = async (req, res) => {
       where: {
         UserId: req.user.id,
         type: 'expense',
-        date: { [Op.between]: [startDate, endDate] }
+        [Op.and]: [
+          sequelize.where(
+            sequelize.fn('EXTRACT', sequelize.literal(`MONTH FROM "date"`)),
+            Number(month) + 1
+          ),
+          sequelize.where(
+            sequelize.fn('EXTRACT', sequelize.literal(`YEAR FROM "date"`)),
+            Number(year)
+          )
+        ]
       },
       group: ['category'],
       order: [[sequelize.fn('SUM', sequelize.col('amount')), 'DESC']],
       raw: true
     });
 
+    // Monthly trend for bar and line charts
     const trend = await Transaction.findAll({
       attributes: [
-        [sequelize.fn('strftime', '%Y-%m', sequelize.col('date')), 'month'],
+        [sequelize.fn('TO_CHAR', sequelize.col('date'), 'YYYY-MM'), 'month'],
         'type',
         [sequelize.fn('SUM', sequelize.col('amount')), 'total']
       ],
       where: { UserId: req.user.id },
-      group: [sequelize.fn('strftime', '%Y-%m', sequelize.col('date')), 'type'],
-      order: [[sequelize.fn('strftime', '%Y-%m', sequelize.col('date')), 'ASC']],
+      group: [
+        sequelize.fn('TO_CHAR', sequelize.col('date'), 'YYYY-MM'),
+        'type'
+      ],
+      order: [
+        [sequelize.fn('TO_CHAR', sequelize.col('date'), 'YYYY-MM'), 'ASC']
+      ],
       raw: true
     });
 
@@ -150,9 +172,4 @@ const getSummary = async (req, res) => {
     console.error('Summary error:', error);
     res.status(500).json({ success: false, message: 'Could not fetch summary' });
   }
-};
-
-module.exports = {
-  getTransactions, createTransaction,
-  updateTransaction, deleteTransaction, getSummary
 };
